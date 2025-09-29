@@ -59,43 +59,82 @@ void UEOSGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful, 
 
 void UEOSGameInstance::CreateSession()
 {
-	if(OnlineSubsystem)
-	{
-		if(IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
-		{
-			FOnlineSessionSettings SessionSettings;
-			SessionSettings.bIsDedicated = false;
-			SessionSettings.bShouldAdvertise = true;
-			SessionSettings.bIsLANMatch = false;
-			SessionSettings.NumPublicConnections = 5;
-			SessionSettings.bAllowJoinInProgress = true;
-			SessionSettings.bUsesPresence = true;
-			SessionSettings.bAllowJoinViaPresence = true;
-			SessionSettings.bAllowInvites = true;
-			SessionSettings.bUseLobbiesIfAvailable = true;
+    if (!OnlineSubsystem) return;
 
-			SessionSettings.Set(SEARCH_KEYWORDS, FString("BBDOnlineSession"), EOnlineDataAdvertisementType::ViaOnlineService);
+    IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface();
+    if (!SessionPtr.IsValid()) return;
 
-			SessionPtr->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSGameInstance::OnCreateSessionComplete);
-			
-			SessionPtr->CreateSession(0, MatchSessionName, SessionSettings);
-		}
-	}
+    // Clear any previous delegate to prevent duplicates
+    SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
+
+    // Bind our delegate
+    SessionPtr->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSGameInstance::OnCreateSessionComplete);
+
+    // Setup session settings
+    FOnlineSessionSettings SessionSettings;
+    SessionSettings.bIsDedicated = false;
+    SessionSettings.bShouldAdvertise = true;
+    SessionSettings.bIsLANMatch = false;
+    SessionSettings.NumPublicConnections = 5;
+    SessionSettings.bAllowJoinInProgress = true;
+    SessionSettings.bUsesPresence = true;
+    SessionSettings.bAllowJoinViaPresence = true;
+    SessionSettings.bAllowInvites = true;
+    SessionSettings.bUseLobbiesIfAvailable = true;
+
+    SessionSettings.Set(SEARCH_KEYWORDS, FString("BBDOnlineSession"), EOnlineDataAdvertisementType::ViaOnlineService);
+
+    // Attempt to create the session
+    if (!SessionPtr->CreateSession(0, MatchSessionName, SessionSettings))
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Failed to start session creation!"));
+        SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
+    }
 }
 
 void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Created: %d"), bWasSuccessful));
+    // Clear delegate immediately to prevent double firing
+    if (OnlineSubsystem)
+    {
+        if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
+        {
+            SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
+        }
+    }
 
-	if(OnlineSubsystem)
-	{
-		if(IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
-		{
-			SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
-			
-			GetWorld()->ServerTravel("/Game/Maps/M_Lobby?listen");
-		}
-	}
+    GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Created: %d"), bWasSuccessful));
+
+    if (!bWasSuccessful)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session creation failed."));
+        return;
+    }
+
+    // Confirm the session exists before traveling
+    if (OnlineSubsystem)
+    {
+        if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
+        {
+            FNamedOnlineSession* CreatedSession = SessionPtr->GetNamedSession(SessionName);
+            if (!CreatedSession)
+            {
+                GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session not fully ready yet!"));
+                return;
+            }
+        }
+    }
+
+    // Travel to the lobby
+    if (UWorld* World = GetWorld())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, TEXT("Traveling to lobby..."));
+        UGameplayStatics::OpenLevel(World, FName("/Game/Maps/M_Lobby"), true, "listen");
+    }
+    else
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("World context invalid! Cannot travel."));
+    }
 }
 
 void UEOSGameInstance::DestroySession()
