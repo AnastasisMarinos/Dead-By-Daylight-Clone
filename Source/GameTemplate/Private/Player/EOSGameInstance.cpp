@@ -8,9 +8,17 @@
 #include "OnlineSessionSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Online/OnlineSessionNames.h"
-#include "Player/Lobby/LobbyPlayerController.h"
+#include "Player/SettingsSaveGame.h"
 
 const FName MatchSessionName = FName("BBDOnlineSession");
+
+const FString UEOSGameInstance::SettingsSlotName = TEXT("SettingsSave");
+const uint32 UEOSGameInstance::UserIndex = 0;
+
+UEOSGameInstance::UEOSGameInstance()
+{
+	CurrentSettingsSave = nullptr;
+}
 
 void UEOSGameInstance::Init()
 {
@@ -242,4 +250,37 @@ void UEOSGameInstance::LeaveSession()
 		}
 	}
 }
+
+#pragma region SettingsSave
+
+bool UEOSGameInstance::SettingsSaveExists() const
+{
+	return UGameplayStatics::DoesSaveGameExist(SettingsSlotName, UserIndex);
+}
+
+// Creates a new save game object and writes it to disk.
+void UEOSGameInstance::CreateNewSettingsSave()
+{
+	CurrentSettingsSave = Cast<USettingsSaveGame>(UGameplayStatics::CreateSaveGameObject(USettingsSaveGame::StaticClass()));
+	if (CurrentSettingsSave)
+		UGameplayStatics::SaveGameToSlot(CurrentSettingsSave, SettingsSlotName, UserIndex);
+}
+
+// Loads an existing save, if available.
+void UEOSGameInstance::LoadSettingsSave()
+{
+	if (SettingsSaveExists())
+		CurrentSettingsSave = Cast<USettingsSaveGame>(UGameplayStatics::LoadGameFromSlot(SettingsSlotName, UserIndex));
+	else
+		CurrentSettingsSave = nullptr;
+}
+
+// Writes current save data back to slot.
+void UEOSGameInstance::SaveSettingsToSlot()
+{
+	if (CurrentSettingsSave)
+		UGameplayStatics::SaveGameToSlot(CurrentSettingsSave, SettingsSlotName, UserIndex);
+}
+
+#pragma endregion
 
