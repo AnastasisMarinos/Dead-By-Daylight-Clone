@@ -98,7 +98,7 @@ void UEOSGameInstance::CreateSession()
 
     if (!SessionPtr->CreateSession(0, MatchSessionName, SessionSettings))
     {
-        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Failed to start session creation!"));
+        //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Failed to start session creation!"));
         SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
     }
 }
@@ -113,11 +113,11 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
         }
     }
 
-    GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Created: %d"), bWasSuccessful));
+    //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Created: %d"), bWasSuccessful));
 
     if (!bWasSuccessful)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session creation failed."));
+        //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session creation failed."));
         return;
     }
 
@@ -128,7 +128,7 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
             FNamedOnlineSession* CreatedSession = SessionPtr->GetNamedSession(SessionName);
             if (!CreatedSession)
             {
-                GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session not fully ready yet!"));
+                //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Session not fully ready yet!"));
                 return;
             }
         }
@@ -136,12 +136,12 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
 
     if (UWorld* World = GetWorld())
     {
-        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, TEXT("Traveling to lobby..."));
+        //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, TEXT("Traveling to lobby..."));
         UGameplayStatics::OpenLevel(World, FName("/Game/Maps/M_Lobby"), true, "listen");
     }
     else
     {
-        GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("World context invalid! Cannot travel."));
+        //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("World context invalid! Cannot travel."));
     }
 }
 
@@ -160,7 +160,7 @@ void UEOSGameInstance::DestroySession()
 
 void UEOSGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("Session Destroyed."));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("Session Destroyed."));
 	
 	if(OnlineSubsystem)
 	{
@@ -206,11 +206,11 @@ void UEOSGameInstance::FindSessions()
 
 void UEOSGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 {
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Found: %d"), bWasSuccessful));
+	//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Session Found: %d"), bWasSuccessful));
 	
 	if(bWasSuccessful)
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Found %d Sessions"), SearchSettings->SearchResults.Num()));
+		//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Found %d Sessions"), SearchSettings->SearchResults.Num()));
 
 		if(OnlineSubsystem)
 		{
@@ -231,7 +231,7 @@ void UEOSGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCo
 {
 	if(OnlineSubsystem && JoinResult == EOnJoinSessionCompleteResult::Success)
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Joined Session")));
+		//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Joined Session")));
 		
 		if(IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
 		{
@@ -242,7 +242,7 @@ void UEOSGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCo
 			{
 				if(APlayerController* PlayerController = UGameplayStatics::GetPlayerController(GetWorld(), 0))
 				{
-					GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Traveling To Session")));
+					//GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, FString::Printf(TEXT("Traveling To Session")));
 					PlayerController->ClientTravel(ConnectionInfo, TRAVEL_Absolute);
 				}
 			}
