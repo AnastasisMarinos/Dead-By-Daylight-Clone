@@ -1,15 +1,15 @@
-// © Anastasis Marinos //
+// © Anastasis Marinos 2025 //
 
 #include "Player/SettingsSaveGame.h"
 
 USettingsSaveGame::USettingsSaveGame()
 {
-	// Initialize volumes to default (0.8)
-	AudioVolumes.Init(0.8f, 5); // 5 entries: Master, Music, Effects, Environment, Dialogue
-
+	AudioVolumes.Init(0.8f, 5);
 	Sensitivity = 0.4f;
 	bRetroRendering = true;
 }
+
+// Accessors & mutators for audio channels.
 
 float USettingsSaveGame::GetVolume(EAudioChannel Channel) const
 {
@@ -18,7 +18,7 @@ float USettingsSaveGame::GetVolume(EAudioChannel Channel) const
 	{
 		return AudioVolumes[Index];
 	}
-	return 1.f; // fallback
+	return 1.f;
 }
 
 void USettingsSaveGame::SetVolume(EAudioChannel Channel, float NewVolume)

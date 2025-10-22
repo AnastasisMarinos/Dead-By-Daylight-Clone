@@ -1,4 +1,4 @@
-﻿// (C) Anastasis Marinos 2025
+﻿// © Anastasis Marinos 2025 //
 
 #include "Components/Survivor/SurvivorInteractionComponent.h"
 
@@ -36,12 +36,9 @@ void USurvivorInteractionComponent::Initialize()
 	}
 }
 
-// ============================================================================
-// Overlaps (server)
-// ============================================================================
-
-void USurvivorInteractionComponent::OnCapsuleBeginOverlap(UPrimitiveComponent*, AActor* OtherActor,
-	UPrimitiveComponent*, int32, bool, const FHitResult&)
+// Register nearby interactables and potential targets while we hover in range.
+// Also ensures the interaction UI is visible and starts progress updates.
+void USurvivorInteractionComponent::OnCapsuleBeginOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, int32, bool, const FHitResult&)
 {
 	if (!OwnerSurvivor.IsValid() || !OwnerSurvivor->HasAuthority()) return;
 
@@ -60,11 +57,11 @@ void USurvivorInteractionComponent::OnCapsuleBeginOverlap(UPrimitiveComponent*, 
 			if (Other->GetHealthState() != EHealthState::Healthy
 			 && Other->GetHealthState() != EHealthState::Hooked)
 			{
-				HealingTarget = Other;
+				HealingTarget = Other;         // injured/crawling → heal target
 			}
 			if (Other->GetHealthState() == EHealthState::Hooked)
 			{
-				ActiveHookedTarget = Other;
+				ActiveHookedTarget = Other;    // hooked → unhook target
 			}
 		}
 	}
@@ -72,15 +69,16 @@ void USurvivorInteractionComponent::OnCapsuleBeginOverlap(UPrimitiveComponent*, 
 	TryShowInteractionUI();
 }
 
-void USurvivorInteractionComponent::OnCapsuleEndOverlap(UPrimitiveComponent*, AActor* OtherActor,
-	UPrimitiveComponent*, int32)
+// Unregister objects when leaving range; if nothing left to interact with,
+// clear the UI to avoid stale progress bars.
+void USurvivorInteractionComponent::OnCapsuleEndOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrimitiveComponent*, int32)
 {
 	if (!OwnerSurvivor.IsValid()) return;
 
-	if (OtherActor == ActiveGenerator)         ActiveGenerator = nullptr;
-	if (OtherActor == ActiveExitGateLever)     ActiveExitGateLever = nullptr;
-	if (OtherActor == HealingTarget.Get())     HealingTarget.Reset();
-	if (OtherActor == ActiveHookedTarget.Get())ActiveHookedTarget.Reset();
+	if (OtherActor == ActiveGenerator)          ActiveGenerator = nullptr;
+	if (OtherActor == ActiveExitGateLever)      ActiveExitGateLever = nullptr;
+	if (OtherActor == HealingTarget.Get())      HealingTarget.Reset();
+	if (OtherActor == ActiveHookedTarget.Get()) ActiveHookedTarget.Reset();
 
 	const bool bHasAny =
 		ActiveGenerator || ActiveExitGateLever || HealingTarget.IsValid() || ActiveHookedTarget.IsValid();
@@ -91,13 +89,10 @@ void USurvivorInteractionComponent::OnCapsuleEndOverlap(UPrimitiveComponent*, AA
 	}
 }
 
-// ============================================================================
-// Mode evaluation
-// ============================================================================
-
+// Priority determines which interaction we suggest/do on input.
 EInteractionMode USurvivorInteractionComponent::EvaluateAvailableMode() const
 {
-	// Priority: Repair > Power > HealOther > Unhook > HealSelf
+	// Repair > Power > HealOther > Unhook > HealSelf
 	if (CanInteractWithGenerator()) return EInteractionMode::Repair;
 	if (CanInteractWithExitGate())  return EInteractionMode::Power;
 	if (CanHealOther())             return EInteractionMode::HealOther;
@@ -106,10 +101,8 @@ EInteractionMode USurvivorInteractionComponent::EvaluateAvailableMode() const
 	return EInteractionMode::None;
 }
 
-// ============================================================================
-// UI helpers (server -> client)
-// ============================================================================
-
+// Ensure the progress UI is visible and keep it updated while hovering
+// something interactable. This also covers listen servers cleanly.
 void USurvivorInteractionComponent::TryShowInteractionUI()
 {
 	if (!OwnerSurvivor.IsValid() || !OwnerSurvivor->HasAuthority()) return;
@@ -117,17 +110,12 @@ void USurvivorInteractionComponent::TryShowInteractionUI()
 	const EInteractionMode HoverMode = EvaluateAvailableMode();
 	if (HoverMode == EInteractionMode::None) return;
 
-	// Create UI on the owning client (works for listen-server too).
 	OwnerSurvivor->CreateActionProgressUI();
 
-	// (Re)start the periodic progress push.
 	auto& TM = GetWorld()->GetTimerManager();
 	TM.ClearTimer(ActionProgressTimerHandle);
-	TM.SetTimer(ActionProgressTimerHandle, this,
-		&USurvivorInteractionComponent::Server_PushActionProgressUI,
-		0.1f, /*bLoop=*/true);
+	TM.SetTimer(ActionProgressTimerHandle, this, &USurvivorInteractionComponent::Server_PushActionProgressUI, 0.1f, true);
 
-	// Kick an immediate push.
 	Server_PushActionProgressUI();
 }
 
@@ -139,6 +127,8 @@ void USurvivorInteractionComponent::ClearInteractionUIAndTick()
 	OwnerSurvivor->ClearActionProgressUI();
 }
 
+// Push a 0..1 value that represents "how complete" the hovered target is.
+// The actual mapping depends on what we're standing next to (gen/gate/heal).
 void USurvivorInteractionComponent::Server_PushActionProgressUI_Implementation()
 {
 	if (!OwnerSurvivor.IsValid()) return;
@@ -146,11 +136,11 @@ void USurvivorInteractionComponent::Server_PushActionProgressUI_Implementation()
 	float Value = 0.f;
 	if (GetHoverProgress(Value))
 	{
-		// One-way push to the owning client (Character Client RPC).
 		OwnerSurvivor->SetUIProgressValue(Value);
 	}
 }
 
+// Compute the hover progress for the current available interaction.
 bool USurvivorInteractionComponent::GetHoverProgress(float& OutValue) const
 {
 	OutValue = 0.f;
@@ -158,45 +148,37 @@ bool USurvivorInteractionComponent::GetHoverProgress(float& OutValue) const
 	switch (EvaluateAvailableMode())
 	{
 	case EInteractionMode::Repair:
-		if (ActiveGenerator) { OutValue = ActiveGenerator->GetRepairPercent(); return true; }
+		if (ActiveGenerator)       { OutValue = ActiveGenerator->GetRepairPercent();      return true; }
 		break;
 	case EInteractionMode::Power:
-		if (ActiveExitGateLever) { OutValue = ActiveExitGateLever->GetRepairPercent(); return true; }
+		if (ActiveExitGateLever)   { OutValue = ActiveExitGateLever->GetRepairPercent();  return true; }
 		break;
 	case EInteractionMode::HealOther:
+		if (HealingTarget.IsValid())
 		{
-			if (HealingTarget.IsValid())
+			if (USurvivorHealthComponent* HC = HealingTarget->FindComponentByClass<USurvivorHealthComponent>())
 			{
-				if (USurvivorHealthComponent* HC = HealingTarget->FindComponentByClass<USurvivorHealthComponent>())
-				{
-					OutValue = HC->GetCurrentProgressValue(); // shows their healing progress
-					return true;
-				}
+				OutValue = HC->GetCurrentProgressValue();
+				return true;
 			}
-			break;
 		}
+		break;
 	case EInteractionMode::Unhook:
-		// Optional: you could push the hooked player's HookProgress here if desired.
+		// Could push hooked player's HookProgress if desired.
 		return false;
 	case EInteractionMode::HealSelf:
-		// Self-heal progress bar is handled by Character (self-state). No hover value here.
+		// Self-heal bar is driven by the owner's health component; no hover value.
 		return false;
-	default: break;
+	default:
+		break;
 	}
-
 	return false;
 }
-
-// ============================================================================
-// Interact routing (server)
-// ============================================================================
 
 void USurvivorInteractionComponent::Server_BeginInteract_Implementation()
 {
 	if (!OwnerSurvivor.IsValid()) return;
-
-	// Don’t start two interactions at once.
-	if (ActiveMode != EInteractionMode::None) return;
+	if (ActiveMode != EInteractionMode::None)  return;
 
 	switch (EvaluateAvailableMode())
 	{
@@ -209,7 +191,7 @@ void USurvivorInteractionComponent::Server_BeginInteract_Implementation()
 			{
 				if (USurvivorHealthComponent* HC = Hooked->FindComponentByClass<USurvivorHealthComponent>())
 				{
-					HC->Server_StopHooked();
+					HC->Server_StopHooked(); // instant unhook
 				}
 				ActiveHookedTarget.Reset();
 			}
@@ -226,30 +208,20 @@ void USurvivorInteractionComponent::Server_EndInteract_Implementation()
 	EndCurrentMode();
 }
 
-// ============================================================================
-// Centralized begin/end helpers
-// ============================================================================
-
+// Lock/unlock movement for hold-type interactions so input doesn't fight timers.
 void USurvivorInteractionComponent::SetActiveMode(EInteractionMode NewMode)
 {
 	ActiveMode = NewMode;
 
-	// Lock movement for hold-type interactions.
 	const bool bLockMove =
-		ActiveMode == EInteractionMode::Repair ||
-		ActiveMode == EInteractionMode::Power  ||
+		ActiveMode == EInteractionMode::Repair    ||
+		ActiveMode == EInteractionMode::Power     ||
 		ActiveMode == EInteractionMode::HealOther ||
 		ActiveMode == EInteractionMode::HealSelf;
 
-	if (bLockMove)
+	if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
 	{
-		if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
-			CMC->SetMovementMode(MOVE_None);
-	}
-	else
-	{
-		if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
-			CMC->SetMovementMode(MOVE_Walking);
+		CMC->SetMovementMode(bLockMove ? MOVE_None : MOVE_Walking);
 	}
 }
 
@@ -267,23 +239,24 @@ void USurvivorInteractionComponent::EndCurrentMode()
 	SetActiveMode(EInteractionMode::None);
 }
 
-// ============================================================================
-// Repair
-// ============================================================================
+#pragma region Repair
 
+// Start repairing a generator; enables SkillCheck flow and pins movement.
 void USurvivorInteractionComponent::BeginRepair()
 {
 	if (!OwnerSurvivor.IsValid() || !ActiveGenerator) return;
 
 	OwnerSurvivor->bIsRepairing = true;
+
 	if (OwnerSurvivor->SkillCheckComponent)
+	{
 		OwnerSurvivor->SkillCheckComponent->SetSkillCheckTimer();
+	}
 
 	OwnerSurvivor->CreateActionProgressUI();
 	SetActiveMode(EInteractionMode::Repair);
 
-	GetWorld()->GetTimerManager().SetTimer(RepairTimerHandle, this,
-		&USurvivorInteractionComponent::TickRepair, 0.1f, true);
+	GetWorld()->GetTimerManager().SetTimer(RepairTimerHandle, this, &USurvivorInteractionComponent::TickRepair, 0.1f, true);
 }
 
 void USurvivorInteractionComponent::TickRepair()
@@ -318,14 +291,14 @@ void USurvivorInteractionComponent::EndRepair()
 	}
 	OwnerSurvivor->ClearSkillCheckUI();
 
-	// Unlock movement
 	if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
+	{
 		CMC->SetMovementMode(MOVE_Walking);
+	}
 }
+#pragma endregion
 
-// ============================================================================
-// Power Gates
-// ============================================================================
+#pragma region Power Exit Gates
 
 void USurvivorInteractionComponent::BeginPower()
 {
@@ -335,8 +308,7 @@ void USurvivorInteractionComponent::BeginPower()
 	OwnerSurvivor->CreateActionProgressUI();
 	SetActiveMode(EInteractionMode::Power);
 
-	GetWorld()->GetTimerManager().SetTimer(PowerTimerHandle, this,
-		&USurvivorInteractionComponent::TickPower, 0.1f, true);
+	GetWorld()->GetTimerManager().SetTimer(PowerTimerHandle, this, &USurvivorInteractionComponent::TickPower, 0.1f, true);
 }
 
 void USurvivorInteractionComponent::TickPower()
@@ -364,14 +336,14 @@ void USurvivorInteractionComponent::EndPower()
 
 	GetWorld()->GetTimerManager().ClearTimer(PowerTimerHandle);
 
-	// Unlock movement
 	if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
+	{
 		CMC->SetMovementMode(MOVE_Walking);
+	}
 }
+#pragma endregion
 
-// ============================================================================
-// Heal Other
-// ============================================================================
+#pragma region Heal Other
 
 void USurvivorInteractionComponent::BeginHealOther()
 {
@@ -382,14 +354,15 @@ void USurvivorInteractionComponent::BeginHealOther()
 	if (ASurvivorCharacter* T = HealingTarget.Get())
 	{
 		if (T->GetHealthState() != EHealthState::Crawling)
+		{
 			T->bIsBeingHealed = true;
+		}
 	}
 
 	OwnerSurvivor->CreateActionProgressUI();
 	SetActiveMode(EInteractionMode::HealOther);
 
-	GetWorld()->GetTimerManager().SetTimer(HealTimerHandle, this,
-		&USurvivorInteractionComponent::TickHealOther, 0.25f, true);
+	GetWorld()->GetTimerManager().SetTimer(HealTimerHandle, this, &USurvivorInteractionComponent::TickHealOther, 0.25f, true);
 }
 
 void USurvivorInteractionComponent::TickHealOther()
@@ -422,30 +395,30 @@ void USurvivorInteractionComponent::EndHealOther()
 
 	GetWorld()->GetTimerManager().ClearTimer(HealTimerHandle);
 
-	// Unlock movement
 	if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
+	{
 		CMC->SetMovementMode(MOVE_Walking);
+	}
 }
+#pragma endregion
 
-// ============================================================================
-// Heal Self
-// ============================================================================
+#pragma region Heal Self
 
 void USurvivorInteractionComponent::BeginHealSelf()
 {
 	if (!OwnerSurvivor.IsValid()) return;
 
 	OwnerSurvivor->bIsBeingHealed = true;
-	OwnerSurvivor->CreateActionProgressUI(); // optional: self-state could also drive UI
+	OwnerSurvivor->CreateActionProgressUI();
 	SetActiveMode(EInteractionMode::HealSelf);
 
-	GetWorld()->GetTimerManager().SetTimer(HealTimerHandle, this,
-		&USurvivorInteractionComponent::TickHealSelf, 0.25f, true);
+	GetWorld()->GetTimerManager().SetTimer(HealTimerHandle, this, &USurvivorInteractionComponent::TickHealSelf, 0.25f, true);
 }
 
 void USurvivorInteractionComponent::TickHealSelf()
 {
 	if (!OwnerSurvivor.IsValid()) return;
+
 	if (OwnerSurvivor.IsValid() && OwnerSurvivor->HealthComponent)
 	{
 		OwnerSurvivor->HealthComponent->Server_HealSelf();
@@ -460,14 +433,14 @@ void USurvivorInteractionComponent::EndHealSelf()
 
 	GetWorld()->GetTimerManager().ClearTimer(HealTimerHandle);
 
-	// Unlock movement
 	if (auto* CMC = OwnerSurvivor->GetCharacterMovement())
+	{
 		CMC->SetMovementMode(MOVE_Walking);
+	}
 }
+#pragma endregion
 
-// ============================================================================
-// Capability checks
-// ============================================================================
+#pragma region Capability Checks
 
 bool USurvivorInteractionComponent::IsCrawling() const
 {
@@ -515,3 +488,4 @@ bool USurvivorInteractionComponent::CanSelfHeal() const
 	return OwnerSurvivor.IsValid()
 	    && OwnerSurvivor->GetHealthState() == EHealthState::Crawling;
 }
+#pragma endregion

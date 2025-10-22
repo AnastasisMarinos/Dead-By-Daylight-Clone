@@ -1,17 +1,12 @@
-﻿// (C) Anastasis Marinos 2025
+﻿// © Anastasis Marinos 2025 //
 
 #include "Components/Survivor/SurvivorHealthComponent.h"
 
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
-#include "Player/PlayerGameState.h"
 #include "Player/Characters/SurvivorCharacter.h"
 #include "Player/Characters/KillerCharacter.h"
 #include "World/Hook.h"
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Construction & Lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
 
 USurvivorHealthComponent::USurvivorHealthComponent()
 {
@@ -39,97 +34,48 @@ void USurvivorHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	DOREPLIFETIME(USurvivorHealthComponent, ActiveHook);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RepNotifies (client + server)
-// ─────────────────────────────────────────────────────────────────────────────
-
-void USurvivorHealthComponent::OnRep_HealthState()
-{
-	// Keep character presentation/animation in one place.
-	OnHealthStateChanged.Broadcast(HealthState);
-
-	// Server owns UI lifecycle & tick; clients are passive here.
-	if (HasAuthority())
-	{
-		UpdateHealthUIForState();
-		Server_PushHealthProgressUI(); // immediate push on state change
-	}
-}
-
-void USurvivorHealthComponent::OnRep_HookState()
-{
-	EmitProgressValue();
-}
-
-void USurvivorHealthComponent::OnRep_HealingProgress()
-{
-	if (HasAuthority())
-	{
-		UpdateHealthUIForState();
-		Server_PushHealthProgressUI();
-	}
-}
-
-void USurvivorHealthComponent::OnRep_WiggleProgress()
-{
-	if (HasAuthority()) Server_PushHealthProgressUI();
-}
-
-void USurvivorHealthComponent::OnRep_HookProgress()
-{
-	if (HasAuthority()) Server_PushHealthProgressUI();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Server-side authoritative setters
-// ─────────────────────────────────────────────────────────────────────────────
-
 void USurvivorHealthComponent::SetHealthState(EHealthState NewState)
 {
 	if (!HasAuthority() || HealthState == NewState) return;
-
 	HealthState = NewState;
-	OnRep_HealthState(); // Triggers presentation + UI routing on server/clients
-	// OnRep_HealthState() already handles UpdateHealthUIForState() + immediate push (server).
+	OnRep_HealthState();
 }
 
 void USurvivorHealthComponent::SetHookState(EHookState NewHook)
 {
 	if (!HasAuthority() || HookedState == NewHook) return;
-
 	HookedState = NewHook;
 	OnRep_HookState();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UI helpers (server mirrors InteractionComponent pattern)
-// ─────────────────────────────────────────────────────────────────────────────
-
-void USurvivorHealthComponent::RefreshProgressVisibility()
+void USurvivorHealthComponent::HandleDeath()
 {
-	// Legacy visibility calculation (kept for parity). The UI lifecycle is managed by UpdateHealthUIForState().
-	const bool bShow =
-		HealthState == EHealthState::Hooked ||
-		HealthState == EHealthState::Carried ||
-		HealthState == EHealthState::Crawling;
-	// bShow result is intentionally not acted on here; UI lifecycle is centralized elsewhere.
+	if (!HasAuthority()) return;
+
+	if (OwnerSurvivor)
+	{
+		OwnerSurvivor->ClearActionProgressUI();
+		OwnerSurvivor->ClearSkillCheckUI();
+		OwnerSurvivor->Die();
+	}
 }
+
+#pragma region UI
 
 float USurvivorHealthComponent::GetCurrentProgressValue() const
 {
 	switch (HealthState)
 	{
-	case EHealthState::Hooked:   return HookProgress;
-	case EHealthState::Carried:  return WiggleProgress;
-	case EHealthState::Crawling: return HealingProgress; // self-heal bar
-	case EHealthState::Injured:  return HealingProgress; // healing from others
+	case EHealthState::Hooked:   return HookProgress;     // how close to death
+	case EHealthState::Carried:  return WiggleProgress;   // wiggle-to-freedom
+	case EHealthState::Crawling: return HealingProgress;  // self-heal
+	case EHealthState::Injured:  return HealingProgress;  // being healed by others
 	default:                     return 0.f;
 	}
 }
 
 void USurvivorHealthComponent::EmitProgressValue()
 {
-	// Mirror InteractionComponent approach: server pushes the current value to the owning client.
 	PushProgressToOwnerUI();
 }
 
@@ -137,26 +83,22 @@ void USurvivorHealthComponent::PushProgressToOwnerUI()
 {
 	if (OwnerSurvivor && HasAuthority())
 	{
-		const float Value = GetCurrentProgressValue();
-		OwnerSurvivor->SetUIProgressValue(Value); // server -> owning client (Client RPC)
+		OwnerSurvivor->SetUIProgressValue(GetCurrentProgressValue());
 	}
 }
 
 void USurvivorHealthComponent::UpdateHealthUIForState()
 {
 	if (!HasAuthority() || !OwnerSurvivor) return;
-	
-	// Always show for these:
+
 	const bool bAlwaysShow =
-	HealthState == EHealthState::Hooked ||
-	HealthState == EHealthState::Carried ||
-	HealthState == EHealthState::Crawling;
-	
-	// For Injured, show ONLY while we are actually being healed (healee view).
+		HealthState == EHealthState::Hooked ||
+		HealthState == EHealthState::Carried ||
+		HealthState == EHealthState::Crawling;
+
 	const bool bHealeeWantsBar =
-	(HealthState == EHealthState::Injured) &&
-	OwnerSurvivor && OwnerSurvivor->bIsBeingHealed;
-	
+		(HealthState == EHealthState::Injured) && OwnerSurvivor->bIsBeingHealed;
+
 	const bool bShow = bAlwaysShow || bHealeeWantsBar;
 
 	if (bShow) ShowHealthUI();
@@ -167,20 +109,12 @@ void USurvivorHealthComponent::ShowHealthUI()
 {
 	if (!HasAuthority() || !OwnerSurvivor) return;
 
-	// Create UI on owning client (same pattern as InteractionComponent).
 	OwnerSurvivor->CreateActionProgressUI();
 
-	// Start periodic progress push.
 	auto& TM = GetWorld()->GetTimerManager();
 	TM.ClearTimer(HealthProgressTimerHandle);
-	TM.SetTimer(
-		HealthProgressTimerHandle,
-		this,
-		&USurvivorHealthComponent::Server_PushHealthProgressUI,
-		0.1f,
-		true);
+	TM.SetTimer(HealthProgressTimerHandle, this, &USurvivorHealthComponent::Server_PushHealthProgressUI, 0.1f, true);
 
-	// Immediate first push to feel responsive.
 	Server_PushHealthProgressUI();
 }
 
@@ -189,34 +123,32 @@ void USurvivorHealthComponent::HideHealthUI()
 	if (!HasAuthority() || !OwnerSurvivor) return;
 
 	GetWorld()->GetTimerManager().ClearTimer(HealthProgressTimerHandle);
-	OwnerSurvivor->ClearActionProgressUI(); // Symmetric to InteractionComponent
+	OwnerSurvivor->ClearActionProgressUI();
 }
 
 void USurvivorHealthComponent::Server_PushHealthProgressUI_Implementation()
 {
 	if (!OwnerSurvivor || !HasAuthority()) return;
 
-	// Guard: if we no longer "deserve" a health bar, hide and stop the timer.
 	const bool bAlwaysShow =
-	HealthState == EHealthState::Hooked ||
-	HealthState == EHealthState::Carried ||
-	HealthState == EHealthState::Crawling;
-	
-	const bool bHealeeWantsBar = (HealthState == EHealthState::Injured) && OwnerSurvivor && OwnerSurvivor->bIsBeingHealed;
-	
+		HealthState == EHealthState::Hooked ||
+		HealthState == EHealthState::Carried ||
+		HealthState == EHealthState::Crawling;
+
+	const bool bHealeeWantsBar =
+		(HealthState == EHealthState::Injured) && OwnerSurvivor && OwnerSurvivor->bIsBeingHealed;
+
 	if (!(bAlwaysShow || bHealeeWantsBar))
 	{
 		HideHealthUI();
 		return;
-
 	}
-	const float Value = GetCurrentProgressValue();
-	OwnerSurvivor->SetUIProgressValue(Value); // server -> owning client (Client RPC)
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Gameplay API (Server)
-// ─────────────────────────────────────────────────────────────────────────────
+	OwnerSurvivor->SetUIProgressValue(GetCurrentProgressValue());
+}
+#pragma endregion
+
+#pragma region Handle Damage
 
 void USurvivorHealthComponent::Server_SurvivorGetHit_Implementation()
 {
@@ -258,22 +190,20 @@ void USurvivorHealthComponent::Server_StartCarried_Implementation(AKillerCharact
 
 void USurvivorHealthComponent::Server_StopCarried_Implementation()
 {
-	AKillerCharacter* PrevKiller = ActiveKiller;  // cache before nulling
+	AKillerCharacter* PrevKiller = ActiveKiller;
 
 	ActiveKiller   = nullptr;
 	SetHealthState(EHealthState::Injured);
 	WiggleProgress = 0.f;
 	OnRep_WiggleProgress();
 
-	// NEW: tell killer they are no longer carrying
 	if (PrevKiller)
 	{
 		PrevKiller->bIsCarryingSurvivor = false;
-		PrevKiller->SurvivorGettingCarried = nullptr; // if you keep this pointer
-		// (Optional) PrevKiller->OnCarryEnded(); if you want a dedicated hook
+		PrevKiller->SurvivorGettingCarried = nullptr;
 	}
 
-	UpdateHealthUIForState(); // keep UI consistent
+	UpdateHealthUIForState();
 }
 
 void USurvivorHealthComponent::Server_Wiggle_Implementation()
@@ -293,7 +223,6 @@ void USurvivorHealthComponent::Server_StartHooked_Implementation(AHook* Hook)
 {
 	if (!Hook) return;
 
-	// NEW: if we were carried, clear the killer's flags now
 	if (ActiveKiller)
 	{
 		ActiveKiller->bIsCarryingSurvivor = false;
@@ -367,21 +296,15 @@ void USurvivorHealthComponent::Server_HealSelf_Implementation()
 		OnRep_HealingProgress();
 	}
 }
+#pragma endregion
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook damage timer (Server)
-// ─────────────────────────────────────────────────────────────────────────────
+#pragma region Hook Damage Timer (Server)
 
 void USurvivorHealthComponent::StartHookDamageTimer()
 {
 	if (UWorld* W = GetWorld())
 	{
-		W->GetTimerManager().SetTimer(
-			HookHealthTimer,
-			this,
-			&USurvivorHealthComponent::TickHookDamage,
-			0.5f,
-			true);
+		W->GetTimerManager().SetTimer(HookHealthTimer, this, &USurvivorHealthComponent::TickHookDamage, 0.5f, true);
 	}
 }
 
@@ -414,24 +337,50 @@ void USurvivorHealthComponent::TickHookDamage()
 	}
 	Server_PushHealthProgressUI();
 }
+#pragma endregion
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Death routing (Server)
-// ─────────────────────────────────────────────────────────────────────────────
+#pragma region Replication & RepNotifies
 
-void USurvivorHealthComponent::HandleDeath()
+// Propagate gameplay-facing state changes to character and UI.
+void USurvivorHealthComponent::OnRep_HealthState()
 {
-	// Ensure only the server drives death/possession.
-	if (!HasAuthority())
-	{
-		return;
-	}
+	OnHealthStateChanged.Broadcast(HealthState);
 
-	if (OwnerSurvivor)
+	if (HasAuthority())
 	{
-		// Best-effort: clear any UI still visible on the owning client.
-		OwnerSurvivor->ClearActionProgressUI();
-		OwnerSurvivor->ClearSkillCheckUI();
-		OwnerSurvivor->Die();
+		UpdateHealthUIForState();
+		Server_PushHealthProgressUI();
 	}
 }
+
+void USurvivorHealthComponent::OnRep_HookState()
+{
+	EmitProgressValue();
+}
+
+void USurvivorHealthComponent::OnRep_HealingProgress()
+{
+	if (HasAuthority())
+	{
+		UpdateHealthUIForState();
+		Server_PushHealthProgressUI();
+	}
+}
+
+void USurvivorHealthComponent::OnRep_WiggleProgress()
+{
+	if (HasAuthority())
+	{
+		Server_PushHealthProgressUI();
+	}
+}
+
+void USurvivorHealthComponent::OnRep_HookProgress()
+{
+	if (HasAuthority())
+	{
+		Server_PushHealthProgressUI();
+	}
+}
+
+#pragma endregion

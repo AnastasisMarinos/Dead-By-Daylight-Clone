@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// © Anastasis Marinos 2025 //
 
 #include "Player/EOSGameInstance.h"
 
@@ -27,6 +27,9 @@ void UEOSGameInstance::Init()
 	OnlineSubsystem = IOnlineSubsystem::Get();
 	Login();
 }
+
+// Login & identity hookup (EOS account portal).
+#pragma region Login & Identity
 
 void UEOSGameInstance::Login()
 {
@@ -65,6 +68,11 @@ void UEOSGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful, 
 	}
 }
 
+#pragma endregion
+
+// Session creation on host; opens lobby as a listen server on success.
+#pragma region Host | Join | Destroy Session
+
 void UEOSGameInstance::CreateSession()
 {
     if (!OnlineSubsystem) return;
@@ -72,13 +80,9 @@ void UEOSGameInstance::CreateSession()
     IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface();
     if (!SessionPtr.IsValid()) return;
 
-    // Clear any previous delegate to prevent duplicates
     SessionPtr->ClearOnCreateSessionCompleteDelegates(this);
-
-    // Bind our delegate
     SessionPtr->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSGameInstance::OnCreateSessionComplete);
 
-    // Setup session settings
     FOnlineSessionSettings SessionSettings;
     SessionSettings.bIsDedicated = false;
     SessionSettings.bShouldAdvertise = true;
@@ -92,7 +96,6 @@ void UEOSGameInstance::CreateSession()
 
     SessionSettings.Set(SEARCH_KEYWORDS, FString("BBDOnlineSession"), EOnlineDataAdvertisementType::ViaOnlineService);
 
-    // Attempt to create the session
     if (!SessionPtr->CreateSession(0, MatchSessionName, SessionSettings))
     {
         GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("Failed to start session creation!"));
@@ -102,7 +105,6 @@ void UEOSGameInstance::CreateSession()
 
 void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
 {
-    // Clear delegate immediately to prevent double firing
     if (OnlineSubsystem)
     {
         if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
@@ -119,7 +121,6 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
         return;
     }
 
-    // Confirm the session exists before traveling
     if (OnlineSubsystem)
     {
         if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
@@ -133,7 +134,6 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
         }
     }
 
-    // Travel to the lobby
     if (UWorld* World = GetWorld())
     {
         GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, TEXT("Traveling to lobby..."));
@@ -145,6 +145,7 @@ void UEOSGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucce
     }
 }
 
+// Session teardown; host returns to main menu after destroy completes.
 void UEOSGameInstance::DestroySession()
 {
 	if(OnlineSubsystem)
@@ -171,6 +172,19 @@ void UEOSGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSucc
 	UGameplayStatics::OpenLevel(GetWorld(), FName("M_MainMenu"));
 }
 
+void UEOSGameInstance::LeaveSession()
+{
+	if (OnlineSubsystem)
+	{
+		if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
+		{
+			SessionPtr->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSGameInstance::OnDestroySessionComplete);
+			SessionPtr->DestroySession(MatchSessionName);
+		}
+	}
+}
+
+// Client-side discovery and join flow; travels to server address on success.
 void UEOSGameInstance::FindSessions()
 {
 	if(OnlineSubsystem)
@@ -236,21 +250,9 @@ void UEOSGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCo
 	}
 }
 
-void UEOSGameInstance::LeaveSession()
-{
-	if (OnlineSubsystem)
-	{
-		if (IOnlineSessionPtr SessionPtr = OnlineSubsystem->GetSessionInterface())
-		{
-			// Bind the delegate for session destruction completion
-			SessionPtr->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSGameInstance::OnDestroySessionComplete);
-            
-			// Initiate session destruction
-			SessionPtr->DestroySession(MatchSessionName);
-		}
-	}
-}
+#pragma endregion
 
+// Persistent player settings save/load helpers.
 #pragma region SettingsSave
 
 bool UEOSGameInstance::SettingsSaveExists() const
@@ -258,7 +260,6 @@ bool UEOSGameInstance::SettingsSaveExists() const
 	return UGameplayStatics::DoesSaveGameExist(SettingsSlotName, UserIndex);
 }
 
-// Creates a new save game object and writes it to disk.
 void UEOSGameInstance::CreateNewSettingsSave()
 {
 	CurrentSettingsSave = Cast<USettingsSaveGame>(UGameplayStatics::CreateSaveGameObject(USettingsSaveGame::StaticClass()));
@@ -266,7 +267,6 @@ void UEOSGameInstance::CreateNewSettingsSave()
 		UGameplayStatics::SaveGameToSlot(CurrentSettingsSave, SettingsSlotName, UserIndex);
 }
 
-// Loads an existing save, if available.
 void UEOSGameInstance::LoadSettingsSave()
 {
 	if (SettingsSaveExists())
@@ -275,7 +275,6 @@ void UEOSGameInstance::LoadSettingsSave()
 		CurrentSettingsSave = nullptr;
 }
 
-// Writes current save data back to slot.
 void UEOSGameInstance::SaveSettingsToSlot()
 {
 	if (CurrentSettingsSave)
@@ -283,4 +282,3 @@ void UEOSGameInstance::SaveSettingsToSlot()
 }
 
 #pragma endregion
-

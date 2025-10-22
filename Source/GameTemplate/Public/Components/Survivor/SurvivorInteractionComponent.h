@@ -1,4 +1,5 @@
-﻿// (C) Anastasis Marinos 2025
+﻿// © Anastasis Marinos 2025 //
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -9,7 +10,7 @@ class ASurvivorCharacter;
 class AGenerator;
 class AExitGateLever;
 
-/* What the player can/does interact with right now. */
+// What the player can/does interact with right now.
 UENUM(BlueprintType)
 enum class EInteractionMode : uint8
 {
@@ -21,17 +22,15 @@ enum class EInteractionMode : uint8
 	Unhook    UMETA(DisplayName="Unhook")
 };
 
-/*
- * USurvivorInteractionComponent
- * -----------------------------
- * Server-owned interaction orchestrator that:
- *  - Tracks nearby interactables (overlap on server)
- *  - Decides available & active interaction mode
- *  - Starts/stops interaction timers and movement lock
- *  - Pushes progress to the owning client (character Client RPC)
- *
- * Character stays focused on replicated state + UI RPCs.
- */
+// USurvivorInteractionComponent
+// -----------------------------------------------------------------------------
+// Server-owned interaction orchestrator that:
+// - Tracks nearby interactables via overlaps.
+// - Decides available & active interaction mode.
+// - Starts/stops interaction timers and movement lock.
+// - Pushes progress to the owning client (character Client RPC).
+//
+// Character focuses on replicated flags + UI RPCs.
 
 UCLASS(ClassGroup=(Player), meta=(BlueprintSpawnableComponent))
 class GAMETEMPLATE_API USurvivorInteractionComponent : public UActorComponent
@@ -41,84 +40,78 @@ class GAMETEMPLATE_API USurvivorInteractionComponent : public UActorComponent
 public:
 	USurvivorInteractionComponent();
 
-	/** Bind overlaps; safe to call multiple times (idempotent). */
+	// Bind overlaps; safe to call multiple times (idempotent).
 	UFUNCTION(BlueprintCallable, Category="Interaction")
 	void Initialize();
 
-	/** Input entry points (from Character). Server only. */
+	// Input entry points (from Character). Server only.
 	UFUNCTION(Server, Reliable) void Server_BeginInteract();
 	UFUNCTION(Server, Reliable) void Server_EndInteract();
 
-	/** Read access for Character/skill-check code. */
-	FORCEINLINE AGenerator*      GetActiveGenerator()     const { return ActiveGenerator; }
-	FORCEINLINE AExitGateLever*  GetActiveExitGateLever() const { return ActiveExitGateLever; }
-	FORCEINLINE ASurvivorCharacter* GetHealingTarget()    const { return HealingTarget.Get(); }
-	FORCEINLINE ASurvivorCharacter* GetActiveHookedTarget() const { return ActiveHookedTarget.Get(); }
+	// Read access for Character/skill-check.
+	FORCEINLINE AGenerator*         GetActiveGenerator()      const { return ActiveGenerator; }
+	FORCEINLINE AExitGateLever*     GetActiveExitGateLever()  const { return ActiveExitGateLever; }
+	FORCEINLINE ASurvivorCharacter* GetHealingTarget()        const { return HealingTarget.Get(); }
+	FORCEINLINE ASurvivorCharacter* GetActiveHookedTarget()   const { return ActiveHookedTarget.Get(); }
 
-	/** Current active mode (server truth). Not replicated (cosmetic). */
-	FORCEINLINE EInteractionMode GetActiveMode() const { return ActiveMode; }
+	// Current active mode (server truth).
+	FORCEINLINE EInteractionMode    GetActiveMode()           const { return ActiveMode; }
 
 protected:
-	// UActorComponent
 	virtual void BeginPlay() override;
 
-	// --------- Overlaps (server) ---------
-	UFUNCTION()
-	void OnCapsuleBeginOverlap(UPrimitiveComponent* Overlapped, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
-	UFUNCTION()
-	void OnCapsuleEndOverlap(UPrimitiveComponent* Overlapped, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+	// Overlaps (server)
+	UFUNCTION() void OnCapsuleBeginOverlap(UPrimitiveComponent* Overlapped, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	UFUNCTION() void OnCapsuleEndOverlap  (UPrimitiveComponent* Overlapped, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-	// --------- Owner & Timers ---------
+	// Owner & Timers
 	TWeakObjectPtr<ASurvivorCharacter> OwnerSurvivor;
 
 	FTimerHandle RepairTimerHandle;
 	FTimerHandle PowerTimerHandle;
 	FTimerHandle HealTimerHandle;
-	FTimerHandle ActionProgressTimerHandle; // periodic server->client UI push
+	FTimerHandle ActionProgressTimerHandle;
 
-	// --------- Nearby interactables (GC-safe; not replicated) ---------
-	UPROPERTY() TObjectPtr<AGenerator> ActiveGenerator     = nullptr;
+	// Nearby interactables (GC-safe; not replicated)
+	UPROPERTY() TObjectPtr<AGenerator>     ActiveGenerator = nullptr;
 	UPROPERTY() TObjectPtr<AExitGateLever> ActiveExitGateLever = nullptr;
 	UPROPERTY() TWeakObjectPtr<ASurvivorCharacter> HealingTarget;
 	UPROPERTY() TWeakObjectPtr<ASurvivorCharacter> ActiveHookedTarget;
 
-	// --------- Modes ---------
-	/** Mode currently being performed (begun via input). */
+	// Modes
 	EInteractionMode ActiveMode = EInteractionMode::None;
 
-	/** Evaluate the best available/hover mode based on proximity/state. */
+	// Choose best available hover mode by proximity/state.
 	EInteractionMode EvaluateAvailableMode() const;
 
-	// --------- Capability checks (server) ---------
+	// Capability checks (server)
 	bool IsCrawling() const;
 	bool CanPowerGates() const;
 
 	bool CanInteractWithGenerator() const;
-	bool CanInteractWithExitGate() const;
-	bool CanHealOther() const;
-	bool CanUnhookOther() const;
-	bool CanSelfHeal() const;
+	bool CanInteractWithExitGate()  const;
+	bool CanHealOther()             const;
+	bool CanUnhookOther()           const;
+	bool CanSelfHeal()              const;
 
-	// --------- UI routing (server triggers client UI) ---------
-	void TryShowInteractionUI();   // creates UI + starts periodic push
-	void ClearInteractionUIAndTick(); // clears UI + stops periodic push
+	// UI routing (server triggers client UI)
+	void TryShowInteractionUI();
+	void ClearInteractionUIAndTick();
 
-	/** Periodically called on server to push a 0..1 progress to owning client. */
-	UFUNCTION(Server, Unreliable)
-	void Server_PushActionProgressUI();
+	// Periodic server push of 0..1 progress to the owning client.
+	UFUNCTION(Server, Unreliable) void Server_PushActionProgressUI();
 
-	/** Compute a 0..1 progress value for the *hover/available* context. */
+	// Compute 0..1 progress for the current hover context.
 	bool GetHoverProgress(float& OutValue) const;
 
-	// --------- Interaction flows (server only) ---------
-	void BeginRepair();   void TickRepair();   void EndRepair();
-	void BeginPower();    void TickPower();    void EndPower();
-	void BeginHealOther();void TickHealOther();void EndHealOther();
-	void BeginHealSelf(); void TickHealSelf(); void EndHealSelf();
+	// Interaction flows (server only)
+	void BeginRepair();    void TickRepair();    void EndRepair();
+	void BeginPower();     void TickPower();     void EndPower();
+	void BeginHealOther(); void TickHealOther(); void EndHealOther();
+	void BeginHealSelf();  void TickHealSelf();  void EndHealSelf();
 
-	/** Centralized begin/end helpers. */
+	// Centralized begin/end helpers
 	void SetActiveMode(EInteractionMode NewMode);
 	void EndCurrentMode();
 };

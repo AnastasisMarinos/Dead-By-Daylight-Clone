@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// © Anastasis Marinos 2025 //
 
 #pragma once
 
@@ -7,10 +7,20 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "EOSGameInstance.generated.h"
 
-
 class USettingsSaveGame;
 class FOnlineSessionSearch;
 class IOnlineSubsystem;
+
+// Game-wide instance that owns EOS login, session lifecycle, and player settings.
+//
+// Responsibilities
+// - Log in to the Online Subsystem (EOS) on startup.
+// - Create/find/join/destroy sessions and handle seamless travel.
+// - Manage a small settings save (audio/sensitivity/etc.).
+//
+// Networking
+// - Session creation opens the lobby on the host in listen mode.
+// - Destroying a session returns the host to the main menu map.
 
 UCLASS()
 class GAMETEMPLATE_API UEOSGameInstance : public UGameInstance
@@ -22,9 +32,11 @@ public:
 	
 	virtual void Init() override;
 
+	// Identity
 	void Login();
 	void OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
 
+	// Sessions
 	UFUNCTION(BlueprintCallable)
 	void CreateSession();
 	void OnCreateSessionComplete(FName SessionName, bool bWasSuccessful);
@@ -39,14 +51,13 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	void LeaveSession();
-	
 	void OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type JoinResult);
 
+	// Search results and display name convenience fields.
 	TSharedPtr<FOnlineSessionSearch> SearchSettings;
-
 	FString DisplayName;
 
-	// SETTINGS SAVE FUNCTIONS //
+	// Settings Save
 	UFUNCTION(BlueprintCallable, Category = "Save|Settings")
 	bool SettingsSaveExists() const;
 
@@ -70,5 +81,4 @@ private:
 	
 	static const FString SettingsSlotName;
 	static const uint32 UserIndex;
-	
 };
