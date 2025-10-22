@@ -4,6 +4,7 @@
 
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
+#include "Player/PlayerGameState.h"
 #include "Player/Characters/SurvivorCharacter.h"
 #include "Player/Characters/KillerCharacter.h"
 #include "World/Hook.h"
@@ -62,7 +63,11 @@ void USurvivorHealthComponent::OnRep_HookState()
 
 void USurvivorHealthComponent::OnRep_HealingProgress()
 {
-	if (HasAuthority()) Server_PushHealthProgressUI();
+	if (HasAuthority())
+	{
+		UpdateHealthUIForState();
+		Server_PushHealthProgressUI();
+	}
 }
 
 void USurvivorHealthComponent::OnRep_WiggleProgress()
@@ -140,12 +145,19 @@ void USurvivorHealthComponent::PushProgressToOwnerUI()
 void USurvivorHealthComponent::UpdateHealthUIForState()
 {
 	if (!HasAuthority() || !OwnerSurvivor) return;
-
-	// Show a permanent bar for: Hooked, Carried, Crawling. Hide otherwise.
-	const bool bShow =
-		HealthState == EHealthState::Hooked ||
-		HealthState == EHealthState::Carried ||
-		HealthState == EHealthState::Crawling;
+	
+	// Always show for these:
+	const bool bAlwaysShow =
+	HealthState == EHealthState::Hooked ||
+	HealthState == EHealthState::Carried ||
+	HealthState == EHealthState::Crawling;
+	
+	// For Injured, show ONLY while we are actually being healed (healee view).
+	const bool bHealeeWantsBar =
+	(HealthState == EHealthState::Injured) &&
+	OwnerSurvivor && OwnerSurvivor->bIsBeingHealed;
+	
+	const bool bShow = bAlwaysShow || bHealeeWantsBar;
 
 	if (bShow) ShowHealthUI();
 	else       HideHealthUI();
@@ -184,6 +196,20 @@ void USurvivorHealthComponent::Server_PushHealthProgressUI_Implementation()
 {
 	if (!OwnerSurvivor || !HasAuthority()) return;
 
+	// Guard: if we no longer "deserve" a health bar, hide and stop the timer.
+	const bool bAlwaysShow =
+	HealthState == EHealthState::Hooked ||
+	HealthState == EHealthState::Carried ||
+	HealthState == EHealthState::Crawling;
+	
+	const bool bHealeeWantsBar = (HealthState == EHealthState::Injured) && OwnerSurvivor && OwnerSurvivor->bIsBeingHealed;
+	
+	if (!(bAlwaysShow || bHealeeWantsBar))
+	{
+		HideHealthUI();
+		return;
+
+	}
 	const float Value = GetCurrentProgressValue();
 	OwnerSurvivor->SetUIProgressValue(Value); // server -> owning client (Client RPC)
 }
@@ -232,10 +258,22 @@ void USurvivorHealthComponent::Server_StartCarried_Implementation(AKillerCharact
 
 void USurvivorHealthComponent::Server_StopCarried_Implementation()
 {
-	ActiveKiller = nullptr;
+	AKillerCharacter* PrevKiller = ActiveKiller;  // cache before nulling
+
+	ActiveKiller   = nullptr;
 	SetHealthState(EHealthState::Injured);
 	WiggleProgress = 0.f;
 	OnRep_WiggleProgress();
+
+	// NEW: tell killer they are no longer carrying
+	if (PrevKiller)
+	{
+		PrevKiller->bIsCarryingSurvivor = false;
+		PrevKiller->SurvivorGettingCarried = nullptr; // if you keep this pointer
+		// (Optional) PrevKiller->OnCarryEnded(); if you want a dedicated hook
+	}
+
+	UpdateHealthUIForState(); // keep UI consistent
 }
 
 void USurvivorHealthComponent::Server_Wiggle_Implementation()
@@ -255,7 +293,14 @@ void USurvivorHealthComponent::Server_StartHooked_Implementation(AHook* Hook)
 {
 	if (!Hook) return;
 
-	ActiveHook = Hook;
+	// NEW: if we were carried, clear the killer's flags now
+	if (ActiveKiller)
+	{
+		ActiveKiller->bIsCarryingSurvivor = false;
+		ActiveKiller->SurvivorGettingCarried = nullptr;
+	}
+
+	ActiveHook   = Hook;
 	ActiveKiller = nullptr;
 
 	HookCount++;
@@ -387,8 +432,6 @@ void USurvivorHealthComponent::HandleDeath()
 		// Best-effort: clear any UI still visible on the owning client.
 		OwnerSurvivor->ClearActionProgressUI();
 		OwnerSurvivor->ClearSkillCheckUI();
-
-		// Let the character handle ragdoll / possession swap / respawn, etc.
 		OwnerSurvivor->Die();
 	}
 }
