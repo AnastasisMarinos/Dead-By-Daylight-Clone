@@ -1,9 +1,9 @@
 ﻿// (C) Anastasis Marinos 2025
 
-#include "Components/SurvivorInteractionComponent.h"
+#include "Components/Survivor/SurvivorInteractionComponent.h"
 
 #include "Components/CapsuleComponent.h"
-#include "Components/SkillCheckComponent.h"
+#include "Components/Survivor/SkillCheckComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/Characters/SurvivorCharacter.h"
 #include "World/Generator.h"
@@ -164,8 +164,17 @@ bool USurvivorInteractionComponent::GetHoverProgress(float& OutValue) const
 		if (ActiveExitGateLever) { OutValue = ActiveExitGateLever->GetRepairPercent(); return true; }
 		break;
 	case EInteractionMode::HealOther:
-		if (HealingTarget.IsValid()) { OutValue = HealingTarget->HealingProgress; return true; }
-		break;
+		{
+			if (HealingTarget.IsValid())
+			{
+				if (USurvivorHealthComponent* HC = HealingTarget->FindComponentByClass<USurvivorHealthComponent>())
+				{
+					OutValue = HC->GetCurrentProgressValue(); // shows their healing progress
+					return true;
+				}
+			}
+			break;
+		}
 	case EInteractionMode::Unhook:
 		// Optional: you could push the hooked player's HookProgress here if desired.
 		return false;
@@ -195,12 +204,17 @@ void USurvivorInteractionComponent::Server_BeginInteract_Implementation()
 	case EInteractionMode::Power:     BeginPower();     break;
 	case EInteractionMode::HealOther: BeginHealOther(); break;
 	case EInteractionMode::Unhook:
-		if (ASurvivorCharacter* Hooked = ActiveHookedTarget.Get())
 		{
-			Hooked->StopHookState(); // authority on target
-			ActiveHookedTarget.Reset();
+			if (ASurvivorCharacter* Hooked = ActiveHookedTarget.Get())
+			{
+				if (USurvivorHealthComponent* HC = Hooked->FindComponentByClass<USurvivorHealthComponent>())
+				{
+					HC->Server_StopHooked();
+				}
+				ActiveHookedTarget.Reset();
+			}
+			break;
 		}
-		break;
 	case EInteractionMode::HealSelf:  BeginHealSelf();  break;
 	default: break;
 	}
@@ -384,7 +398,10 @@ void USurvivorInteractionComponent::TickHealOther()
 
 	if (ASurvivorCharacter* T = HealingTarget.Get())
 	{
-		OwnerSurvivor->Server_HealTarget(T); // authoritative heal
+		if (OwnerSurvivor.IsValid() && OwnerSurvivor->HealthComponent)
+		{
+			OwnerSurvivor->HealthComponent->Server_HealTarget(T);
+		}
 	}
 	else
 	{
@@ -429,7 +446,10 @@ void USurvivorInteractionComponent::BeginHealSelf()
 void USurvivorInteractionComponent::TickHealSelf()
 {
 	if (!OwnerSurvivor.IsValid()) return;
-	OwnerSurvivor->Server_HealSelf();
+	if (OwnerSurvivor.IsValid() && OwnerSurvivor->HealthComponent)
+	{
+		OwnerSurvivor->HealthComponent->Server_HealSelf();
+	}
 }
 
 void USurvivorInteractionComponent::EndHealSelf()
