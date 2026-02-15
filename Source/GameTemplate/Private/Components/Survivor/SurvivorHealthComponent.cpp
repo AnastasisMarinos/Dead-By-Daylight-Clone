@@ -274,7 +274,7 @@ void USurvivorHealthComponent::Server_HealTarget_Implementation(ASurvivorCharact
 		}
 		else if (HC->HealthState == EHealthState::Crawling)
 		{
-			HC->HealingProgress += 0.11f;
+			HC->HealingProgress += 0.025f;
 			if (HC->HealingProgress >= 1.0f)
 			{
 				HC->HealingProgress = 0.0f;
@@ -291,7 +291,7 @@ void USurvivorHealthComponent::Server_HealSelf_Implementation()
 {
 	if (HealthState == EHealthState::Crawling)
 	{
-		HealingProgress += 0.11f;
+		HealingProgress += 0.025f;
 		HealingProgress = FMath::Clamp(HealingProgress, 0.0f, 0.95f);
 		OnRep_HealingProgress();
 	}

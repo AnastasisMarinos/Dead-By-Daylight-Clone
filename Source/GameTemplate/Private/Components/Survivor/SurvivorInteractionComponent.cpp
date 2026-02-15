@@ -148,10 +148,10 @@ bool USurvivorInteractionComponent::GetHoverProgress(float& OutValue) const
 	switch (EvaluateAvailableMode())
 	{
 	case EInteractionMode::Repair:
-		if (ActiveGenerator)       { OutValue = ActiveGenerator->GetRepairPercent();      return true; }
+		if (ActiveGenerator)       { OutValue = ActiveGenerator->GetRepairPercent(); return true; }
 		break;
 	case EInteractionMode::Power:
-		if (ActiveExitGateLever)   { OutValue = ActiveExitGateLever->GetRepairPercent();  return true; }
+		if (ActiveExitGateLever)   { OutValue = ActiveExitGateLever->GetRepairPercent(); return true; }
 		break;
 	case EInteractionMode::HealOther:
 		if (HealingTarget.IsValid())
