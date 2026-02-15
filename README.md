@@ -2,7 +2,7 @@
 
 > A UE5, EOS-powered asymmetrical horror prototype. Survivors repair generators to power the exit and escape; the Killer hunts, injures, carries and hooks them. Built to evolve into a clean **asymmetrical horror template**.
 
-![screenshot](docs/images/hero.png)
+![screenshot](DeadByDaylight.png)
 
 **Tech:** Unreal Engine 5 • Epic Online Services Sessions  
 **Status:** Prototype / WIP  
