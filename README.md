@@ -185,7 +185,7 @@ ClientSecret=<YOUR_CLIENT_SECRET>
 
 ---
 
-- ## Legal Notice
+## Legal Notice
 
 This prototype currently uses placeholder third-party assets for rapid iteration.
 These will be replaced with original content before any public distribution.
